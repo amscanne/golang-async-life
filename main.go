@@ -3,6 +3,7 @@ package main
 import (
     "log"
     "math/rand"
+    "time"
     "code.google.com/p/goncurses"
 )
 
@@ -119,8 +120,10 @@ func showState(out chan State) {
 }
 
 func main() {
-    
+   
     var cells [X_SIZE][Y_SIZE]*Cell
+
+    rand.Seed(time.Now().UTC().UnixNano())
 
     for x := 0; x < X_SIZE; x += 1 {
         for y := 0; y < Y_SIZE; y += 1 {
