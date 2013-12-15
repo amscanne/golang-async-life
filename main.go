@@ -2,6 +2,7 @@ package main
 
 import (
     "log"
+    "fmt"
     "math/rand"
     "time"
     "code.google.com/p/goncurses"
@@ -99,7 +100,7 @@ func (cell *Cell) run(out chan State) {
 
 const (
     X_SIZE = 30
-    Y_SIZE = 30
+    Y_SIZE = 60
 )
 
 func showState(out chan State) {
@@ -115,6 +116,7 @@ func showState(out chan State) {
         } else {
             src.MovePrint(state.x, state.y, " ")
         }
+        src.MovePrint(state.x, state.y + 1 + Y_SIZE, fmt.Sprintf("%d", state.gen%10))
         src.Refresh()
     }
 }
