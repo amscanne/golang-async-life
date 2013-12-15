@@ -1,11 +1,9 @@
 package main
 
 import (
-    "log"
-    "fmt"
     "math/rand"
     "time"
-    "code.google.com/p/goncurses"
+    "github.com/nsf/termbox-go"
 )
 
 type Cell struct {
@@ -104,20 +102,52 @@ const (
 )
 
 func showState(out chan State) {
-    src, err := goncurses.Init()
+    err := termbox.Init()
     if err != nil {
-        log.Fatal("init:", err)
+        panic(err)
     }
-    defer goncurses.End()
+    defer termbox.Close()
+    termbox.Clear(termbox.ColorDefault, termbox.ColorDefault)
 
-    for state := range out {
-        if state.alive {
-            src.MovePrint(state.x, state.y, "*")
-        } else {
-            src.MovePrint(state.x, state.y, " ")
+    colors := []termbox.Attribute{
+        termbox.ColorRed,
+        termbox.ColorGreen,
+        termbox.ColorYellow,
+        termbox.ColorBlue,
+        termbox.ColorMagenta,
+        termbox.ColorCyan,
+    }
+
+    exit_chan := make(chan bool)
+
+    go func() {
+        for {
+            switch ev := termbox.PollEvent(); ev.Type {
+                case termbox.EventKey:
+                    if ev.Key == termbox.KeyEsc {
+                        exit_chan <- true
+                    }
+                case termbox.EventError:
+                    exit_chan <- true
+            }
         }
-        src.MovePrint(state.x, state.y + 1 + Y_SIZE, fmt.Sprintf("%d", state.gen%10))
-        src.Refresh()
+    }()
+
+    for {
+        select {
+            case state := <-out:
+                gen_color := colors[state.gen % len(colors)]
+                if state.alive {
+                    termbox.SetCell(state.y, state.x, rune(0x2610), termbox.ColorBlack, termbox.ColorWhite)
+                } else {
+                    termbox.SetCell(state.y, state.x, rune(0x0020), termbox.ColorBlack, termbox.ColorWhite)
+                }
+                termbox.SetCell(state.y + Y_SIZE + 1, state.x, rune(0x0020), termbox.ColorDefault, gen_color)
+                termbox.Flush()
+
+            case <-exit_chan:
+                return
+        }
     }
 }
 
