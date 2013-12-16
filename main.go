@@ -38,61 +38,165 @@ type State struct {
     alive bool
 }
 
+func (cell *Cell) next(
+    all_states chan bool,
+    prev_state chan bool,
+    neighbours int,
+    inbox chan *Message,
+    outboxes chan chan *Message) {
+
+    // Create a new inbox & state channel.
+    next_inbox := make(chan *Message, neighbours)
+    next_outboxes := make(chan chan *Message, neighbours)
+    next_state := make(chan bool, 1)
+    next_next_state := make(chan bool, 1)
+
+    // Start processing on the next inbox.
+    // This will feed the channel of next outboxes.
+    go cell.update(
+        next_state,
+        next_next_state,
+        inbox,
+        neighbours,
+        next_outboxes)
+
+    // Block for the state to be available.
+    alive := <-prev_state
+    all_states <- alive
+    next_state <- alive
+
+    // Create our message.
+    var msg Message
+    msg.alive = alive
+    msg.next = next_inbox
+
+    go func() {
+        // Send notice of state to all neighbours.
+        for i := 0; i < neighbours; i += 1 {
+            <-outboxes <- &msg
+        }
+    }()
+
+    // Start listening for the next generation.
+    go cell.next(
+        all_states,
+        next_next_state,
+        neighbours,
+        next_inbox,
+        next_outboxes)
+}
+
+func (cell *Cell) update(
+    prev_state chan bool,
+    next_state chan bool,
+    inbox chan *Message,
+    neighbours int,
+    outboxes chan chan *Message) {
+
+    got_alive := false
+    alive := false
+
+    // XXX Uncomment this to see the
+    // non-uniform behaviour that a single
+    // slow cell has on the network. This
+    // is non-uniform because some cells
+    // will *need* the information for this
+    // cell and others will *not*!
+    if cell.x == 10 && cell.y == 10 {
+        time.Sleep(100 * time.Millisecond)
+    }
+
+    // This is resolved only when
+    // we require enough information
+    // to make a decision.
+    is_alive := func() bool {
+        if !got_alive {
+            alive = <-prev_state
+            got_alive = true
+        }
+        return alive
+    }
+
+    // Make a decision.
+    // NOTE: We should always terminate.
+    // Once this has terminated, we will
+    // have pushed out our next state.
+    count := 0
+    done := 0
+    for {
+        msg := <- inbox
+        if msg.alive {
+            count += 1
+        }
+        done += 1
+        outboxes <- msg.next
+
+        // Figure out if we're alive.
+        if ((count > 3) ||
+            (count == 0 && done == neighbours) ||
+            (count < 2 && done == neighbours-1) ||
+            (count < 1 && done == neighbours-2)) && !is_alive() {
+            next_state <- false
+            break
+        } else if (
+            (count == 3 && done == neighbours)) && !is_alive() {
+            next_state <- true
+            break
+        } else if (
+            (count == 2 && done == neighbours-1) ||
+            (count == 3 && done == neighbours)) && is_alive() {
+            next_state <- true
+            break
+        } else if (count > 3) && is_alive() {
+            next_state <- false
+            break
+        } else if (done == neighbours) {
+            next_state <- false
+            break
+        }
+    }
+
+    // Send the rest of the outboxes.
+    for done < neighbours {
+        msg := <- inbox
+        done += 1
+        outboxes <- msg.next
+    }
+}
+
 func (cell *Cell) run(out chan State) {
 
-    gen := 0
-    inbox := cell.first_inbox
-    var next_inbox chan *Message
-    outboxes := cell.neighbours
-    alive := true
+    // Load out initial outboxes channel.
+    outboxes := make(chan chan *Message, len(cell.neighbours))
+    for _, outbox := range cell.neighbours {
+        outboxes <- outbox
+    }
 
+    // Set our initial state.
+    alive := true
     if rand.Int()%2 == 0 {
         alive = true
     } else {
         alive = false
     }
+    all_states := make(chan bool, 1000)
+    start_state := make(chan bool, 1)
+    start_state <- alive
 
+    // Start it.
+    cell.next(
+        all_states,
+        start_state,
+        len(cell.neighbours),
+        cell.first_inbox,
+        outboxes)
+
+    gen := 0
     for {
-        // Make our next inbox.
-        next_inbox = make(chan *Message, len(cell.neighbours))
-        var msg Message
-        msg.alive = alive
-        msg.next = next_inbox
-
-        // Send to all outboxes.
-        for _, outbox := range outboxes {
-            outbox <- &msg
-        }
-
-        // Update our internal state.
-        count := 0
-        outboxes = make([]chan *Message, 0, 0)
-        for i := 0; i < len(cell.neighbours); i += 1 {
-            msg := <- inbox
-
-            if msg.alive {
-                count += 1
-            }
-            outboxes = append(outboxes, msg.next)
-        }
-
         // Send state.
-        out <- State{gen, cell.x, cell.y, msg.alive}
+        alive = <-all_states
+        out <- State{gen, cell.x, cell.y, alive}
         gen += 1
-
-        // Figure out if we're alive.
-        if count < 2 {
-            alive = false
-        } else if count == 2 && alive {
-            alive = true
-        } else if count == 3 {
-            alive = true
-        } else {
-            alive = false
-        }
-
-        // Use next inbox.
-        inbox = next_inbox
     }
 }
 
