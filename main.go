@@ -1,6 +1,7 @@
 package main
 
 import (
+    "fmt"
     "math/rand"
     "time"
     "github.com/nsf/termbox-go"
@@ -103,7 +104,7 @@ func (cell *Cell) update(
     // will *need* the information for this
     // cell and others will *not*!
     if cell.x == 10 && cell.y == 10 {
-        time.Sleep(100 * time.Millisecond)
+        time.Sleep(500 * time.Millisecond)
     }
 
     // This is resolved only when
@@ -132,8 +133,10 @@ func (cell *Cell) update(
         outboxes <- msg.next
 
         // Figure out if we're alive.
-        if ((count > 3) ||
-            (count == 0 && done == neighbours) ||
+        if count > 3 {
+            next_state <- false
+            break
+        } else if (
             (count < 2 && done == neighbours-1) ||
             (count < 1 && done == neighbours-2)) && !is_alive() {
             next_state <- false
@@ -143,12 +146,9 @@ func (cell *Cell) update(
             next_state <- true
             break
         } else if (
-            (count == 2 && done == neighbours-1) ||
+            (count == 2 && done >= neighbours-1) ||
             (count == 3 && done == neighbours)) && is_alive() {
             next_state <- true
-            break
-        } else if (count > 3) && is_alive() {
-            next_state <- false
             break
         } else if (done == neighbours) {
             next_state <- false
@@ -237,16 +237,50 @@ func showState(out chan State) {
         }
     }()
 
+    // Generation tracker.
+    gens := make([]int, X_SIZE * Y_SIZE, X_SIZE * Y_SIZE)
+    min_max_gen := func() (int, int) {
+        min_gen := gens[0]
+        max_gen := gens[0]
+        for i := 1; i < len(gens); i += 1 {
+            if gens[i] < min_gen {
+                min_gen = gens[i]
+            }
+            if gens[i] > max_gen {
+                max_gen = gens[i]
+            }
+        }
+        return min_gen, max_gen
+    }
+    set_gen := func(x int, y int, gen int) {
+        gens[x*Y_SIZE + y] = gen
+    }
+
+    count := 0
+
     for {
         select {
             case state := <-out:
+                set_gen(state.x, state.y, state.gen)
                 gen_color := colors[state.gen % len(colors)]
                 if state.alive {
                     termbox.SetCell(state.y, state.x, rune(0x2610), termbox.ColorBlack, termbox.ColorWhite)
                 } else {
                     termbox.SetCell(state.y, state.x, rune(0x0020), termbox.ColorBlack, termbox.ColorWhite)
                 }
+
+                // Quick hack to print the generation.
+                if count % 1000 == 0 {
+                    min_gen, max_gen := min_max_gen()
+                    termbox.SetCursor(0, X_SIZE+1)
+                    fmt.Printf("Min: %d\r\n", min_gen)
+                    fmt.Printf("Max: %d\r\n", max_gen)
+                }
+                count += 1
+
                 termbox.SetCell(state.y + Y_SIZE + 1, state.x, rune(0x0020), termbox.ColorDefault, gen_color)
+                termbox.SetCell(state.y + Y_SIZE + 1, state.x, rune(0x0020), termbox.ColorDefault, gen_color)
+
                 termbox.Flush()
 
             case <-exit_chan:
